@@ -1,0 +1,410 @@
+{
+  "name": "E-commerce Lead Generation with File Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ecommerce-lead-webhook",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Lead Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 500]
+    },
+    {
+      "parameters": {
+        "filePath": "/data/leads.csv",
+        "options": {}
+      },
+      "id": "read-csv",
+      "name": "Read CSV File",
+      "type": "n8n-nodes-base.readBinaryFiles",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "fromFile",
+        "fileFormat": "csv",
+        "options": {
+          "headerRow": true,
+          "delimiter": ","
+        }
+      },
+      "id": "parse-csv",
+      "name": "Parse CSV Data",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Clean and validate lead data\nconst items = [];\n\nfor (const item of $input.all()) {\n  const lead = item.json;\n  \n  // Validate email\n  const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n  if (!emailRegex.test(lead.email)) {\n    continue; // Skip invalid emails\n  }\n  \n  // Clean phone number\n  if (lead.phone) {\n    lead.phone = lead.phone.replace(/[^0-9+]/g, '');\n  }\n  \n  // Add timestamp\n  lead.processedAt = new Date().toISOString();\n  \n  // Add lead source\n  lead.source = lead.source || 'csv_import';\n  \n  // Normalize names\n  if (lead.firstName) {\n    lead.firstName = lead.firstName.trim().charAt(0).toUpperCase() + lead.firstName.slice(1).toLowerCase();\n  }\n  if (lead.lastName) {\n    lead.lastName = lead.lastName.trim().charAt(0).toUpperCase() + lead.lastName.slice(1).toLowerCase();\n  }\n  \n  items.push({\n    json: lead\n  });\n}\n\nreturn items;"
+      },
+      "id": "clean-data",
+      "name": "Clean & Validate Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "url": "https://api.clearbit.com/v2/people/find",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{$json.email}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "enrich-data",
+      "name": "Enrich Lead Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lead scoring based on various factors\nconst items = [];\n\nfor (const item of $input.all()) {\n  const lead = item.json;\n  let score = 0;\n  \n  // Email domain scoring\n  const email = lead.email || '';\n  if (email.includes('@gmail.com') || email.includes('@yahoo.com')) {\n    score += 10;\n  } else {\n    score += 20; // Business email\n  }\n  \n  // Enrichment data scoring\n  if (lead.company) {\n    score += 15;\n    if (lead.company.metrics && lead.company.metrics.employees > 50) {\n      score += 25;\n    }\n  }\n  \n  // Source scoring\n  if (lead.source === 'website_form') {\n    score += 30;\n  } else if (lead.source === 'cart_abandonment') {\n    score += 40;\n  } else if (lead.source === 'newsletter') {\n    score += 20;\n  }\n  \n  // Previous purchase history\n  if (lead.totalPurchases > 0) {\n    score += 50;\n  }\n  \n  // Determine lead temperature\n  let leadTemperature = 'cold';\n  if (score >= 80) {\n    leadTemperature = 'hot';\n  } else if (score >= 50) {\n    leadTemperature = 'warm';\n  }\n  \n  lead.leadScore = score;\n  lead.leadTemperature = leadTemperature;\n  \n  items.push({\n    json: lead\n  });\n}\n\nreturn items;"
+      },
+      "id": "score-leads",
+      "name": "Score Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.leadTemperature}}",
+              "value2": "hot"
+            }
+          ]
+        }
+      },
+      "id": "filter-hot-leads",
+      "name": "Filter Hot Leads",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "contact",
+        "operation": "create",
+        "email": "={{$json.email}}",
+        "additionalFields": {
+          "firstName": "={{$json.firstName}}",
+          "lastName": "={{$json.lastName}}",
+          "phone": "={{$json.phone}}",
+          "leadStatus": "={{$json.leadTemperature}}",
+          "score": "={{$json.leadScore}}",
+          "company": "={{$json.company.name}}"
+        }
+      },
+      "id": "hubspot-create",
+      "name": "Create in HubSpot",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [1650, 400],
+      "credentials": {
+        "hubspotApi": {
+          "id": "1",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "subscriber",
+        "operation": "create",
+        "email": "={{$json.email}}",
+        "listId": "your-list-id",
+        "additionalFields": {
+          "firstName": "={{$json.firstName}}",
+          "lastName": "={{$json.lastName}}",
+          "tags": ["ecommerce", "={{$json.leadTemperature}}"]
+        }
+      },
+      "id": "mailchimp-add",
+      "name": "Add to Mailchimp",
+      "type": "n8n-nodes-base.mailchimp",
+      "typeVersion": 2,
+      "position": [1850, 400],
+      "credentials": {
+        "mailchimpApi": {
+          "id": "2",
+          "name": "Mailchimp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toFile",
+        "fileFormat": "csv",
+        "options": {}
+      },
+      "id": "create-report",
+      "name": "Create Report CSV",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [2050, 400]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "name": "=lead_report_{{$now.format('yyyy-MM-dd')}}.csv",
+        "parents": ["your-folder-id"],
+        "resolveData": true,
+        "options": {}
+      },
+      "id": "upload-gdrive",
+      "name": "Upload to Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [2250, 400],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "3",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "#lead-notifications",
+        "text": "=🎯 Lead Processing Complete\\n\\nProcessed: {{$items().length}} leads\\nHot Leads: {{$items(\"Filter Hot Leads\").length}}\\nReport saved to Google Drive",
+        "otherOptions": {}
+      },
+      "id": "slack-notify",
+      "name": "Notify Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [2450, 400],
+      "credentials": {
+        "slackApi": {
+          "id": "4",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "triggerOn": "workflowError"
+      },
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [250, 700]
+    },
+    {
+      "parameters": {
+        "fromEmail": "alerts@yourcompany.com",
+        "toEmail": "admin@yourcompany.com",
+        "subject": "Lead Generation Workflow Error",
+        "text": "=Error in lead generation workflow:\\n\\n{{$json.error.message}}\\n\\nNode: {{$json.error.node.name}}\\nTime: {{$now.format('yyyy-MM-dd HH:mm:ss')}}",
+        "options": {}
+      },
+      "id": "error-email",
+      "name": "Send Error Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [450, 700],
+      "credentials": {
+        "smtp": {
+          "id": "5",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read CSV File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Form Webhook": {
+      "main": [
+        [
+          {
+            "node": "Clean & Validate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read CSV File": {
+      "main": [
+        [
+          {
+            "node": "Parse CSV Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse CSV Data": {
+      "main": [
+        [
+          {
+            "node": "Clean & Validate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean & Validate Data": {
+      "main": [
+        [
+          {
+            "node": "Enrich Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Score Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Leads": {
+      "main": [
+        [
+          {
+            "node": "Filter Hot Leads",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create in HubSpot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Hot Leads": {
+      "main": [
+        [
+          {
+            "node": "Add to Mailchimp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Create in HubSpot": {
+      "main": [
+        [
+          {
+            "node": "Add to Mailchimp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Mailchimp": {
+      "main": [
+        [
+          {
+            "node": "Create Report CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Report CSV": {
+      "main": [
+        [
+          {
+            "node": "Upload to Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Notify Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send Error Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "8c8c5237b8e37b006a7adce87f4369350c58e41f3ca854dce0a3e7a0e6b8237a"
+  },
+  "tags": []
+}
