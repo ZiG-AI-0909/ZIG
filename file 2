@@ -1,0 +1,50 @@
+{
+  "name": "Follow-up Sequence",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "followup-trigger",
+      "name": "Check for Follow-ups",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "string"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "string"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "column": "status",
+              "value": "email_sent"
+            }
+          ]
+        }
+      },
+      "id": "read-leads",
+      "name": "Get Sent Emails",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 300]
+    }
+  ]
+}
