@@ -1,0 +1,178 @@
+{
+  "name": "Raw JSON Leads to Google Sheets (Deduplicate + Update)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "raw-leads",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const records = $json.rawData;\nif (!Array.isArray(records)) {\n  throw new Error('rawData must be an array');\n}\nreturn records.map(r => ({ json: r }));"
+      },
+      "id": "2",
+      "name": "Flatten Raw Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "sheetName": "Leads"
+      },
+      "id": "3",
+      "name": "Google Sheets Read",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 100],
+      "credentials": {
+        "googleSheetsOAuth2Api": "YOUR_GOOGLE_CREDENTIAL"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const newLeads = $items(\"Flatten Raw Data\", 0, 0).map(i => i.json);\nconst existing = $items(\"Google Sheets Read\", 0, 0);\nconst existingEmails = existing.map(r => ({ email: (r.json.Email || \"\").toLowerCase(), rowIndex: r.json.rowIndex }));\n\nconst results = [];\n\nfor (const lead of newLeads) {\n  const normEmail = (lead.email || \"\").toLowerCase();\n  if (!normEmail) continue;\n  const found = existingEmails.find(e => e.email === normEmail);\n\n  if (found) {\n    // Update case\n    results.push({ json: { action: \"update\", rowIndex: found.rowIndex, ...lead } });\n  } else {\n    // Insert case\n    results.push({ json: { action: \"insert\", ...lead } });\n  }\n}\n\nreturn results;"
+      },
+      "id": "4",
+      "name": "Decide Insert or Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "sheetName": "Leads",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      },
+      "id": "5",
+      "name": "Insert New Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [950, 100],
+      "credentials": {
+        "googleSheetsOAuth2Api": "YOUR_GOOGLE_CREDENTIAL"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "sheetName": "Leads",
+        "updateAllMatches": true,
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      },
+      "id": "6",
+      "name": "Update Existing Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [950, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": "YOUR_GOOGLE_CREDENTIAL"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "equal",
+              "value2": "insert"
+            }
+          ]
+        }
+      },
+      "id": "7",
+      "name": "IF Insert or Update",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 200]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Flatten Raw Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets Read": {
+      "main": [
+        [
+          {
+            "node": "Decide Insert or Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Raw Data": {
+      "main": [
+        [
+          {
+            "node": "Decide Insert or Update",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Decide Insert or Update": {
+      "main": [
+        [
+          {
+            "node": "IF Insert or Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Insert or Update": {
+      "main": [
+        [
+          {
+            "node": "Insert New Leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Existing Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
