@@ -1,6 +1,3 @@
-I'll create a complete N8N workflow JSON that combines both the voice-to-lead generation and Google Sheets integration. This workflow includes all the components we discussed:
-
-```json
 {
   "name": "Telegram Voice Lead Generator with Google Sheets",
   "nodes": [
