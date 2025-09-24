@@ -1,0 +1,307 @@
+I'll create a complete N8N workflow JSON that combines both the voice-to-lead generation and Google Sheets integration. This workflow includes all the components we discussed:
+
+```json
+{
+  "name": "Telegram Voice Lead Generator with Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "telegram-webhook-id",
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.message.voice ? true : false}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-voice-message",
+      "name": "Check Voice Message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$credentials.telegramApi.token}}/getFile?file_id={{$json.message.voice.file_id}}",
+        "responseFormat": "json",
+        "options": {}
+      },
+      "id": "get-file-info",
+      "name": "Get File Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/file/bot{{$credentials.telegramApi.token}}/{{$json.result.file_path}}",
+        "responseFormat": "file",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-voice-file",
+      "name": "Download Voice File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {
+          "model": "whisper-1",
+          "response_format": "json"
+        }
+      },
+      "id": "transcribe-audio",
+      "name": "OpenAI Transcribe",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [1050, 200],
+      "credentials": {
+        "openAiApi": {
+          "id": "2",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract locations from transcribed text\nconst transcribedText = $input.first().json.text || '';\nconst chatId = $node[\"Telegram Trigger\"].json.message.chat.id;\nconst locations = [];\n\n// Define location mappings\nconst locationMap = {\n  'uk': 'United Kingdom',\n  'united kingdom': 'United Kingdom',\n  'us': 'United States',\n  'usa': 'United States',\n  'united states': 'United States',\n  'canada': 'Canada'\n};\n\n// Extract locations\nconst lowerText = transcribedText.toLowerCase();\nfor (const [key, value] of Object.entries(locationMap)) {\n  if (lowerText.includes(key)) {\n    if (!locations.includes(value)) {\n      locations.push(value);\n    }\n  }\n}\n\nreturn [{\n  json: {\n    originalText: transcribedText,\n    locations: locations,\n    chatId: chatId,\n    searchQuery: {\n      countries: locations,\n      limit: 50\n    }\n  }\n}];"
+      },
+      "id": "extract-intent",
+      "name": "Extract Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/v1/mixed_people/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "q_organization_locations",
+              "value": "={{$json.locations.join(';')}}"
+            },
+            {
+              "name": "page",
+              "value": "1"
+            },
+            {
+              "name": "per_page",
+              "value": "25"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "search-apollo-leads",
+      "name": "Search Apollo Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1450, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "Apollo API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform Apollo.io leads to our format\nconst apolloData = $input.first().json;\nconst leads = apolloData.people || [];\nconst voiceCommand = $node[\"Extract Intent\"].json.originalText;\nconst currentDate = new Date().toISOString();\n\nconst formattedLeads = leads.map(lead => {\n  return {\n    email: lead.email || '',\n    firstName: lead.first_name || '',\n    lastName: lead.last_name || '',\n    phone: lead.phone_numbers?.[0]?.sanitized_number || '',\n    company: lead.organization?.name || '',\n    jobTitle: lead.title || '',\n    source: 'Apollo.io',\n    totalPurchases: '0',\n    lastPurchaseDate: '',\n    lifetimeValue: '0',\n    cartValue: '0',\n    productInterest: '',\n    websiteUrl: lead.organization?.website_url || '',\n    linkedinUrl: lead.linkedin_url || '',\n    city: lead.city || '',\n    state: lead.state || '',\n    zipCode: lead.postal_code || '',\n    country: lead.country || '',\n    leadType: 'Cold',\n    campaignName: `Voice Bot - ${currentDate.split('T')[0]}`,\n    preferredContact: 'Email',\n    newsletterOptIn: 'No',\n    smsOptIn: 'No',\n    tags: (lead.departments || []).join(', '),\n    notes: `Generated via voice command: \"${voiceCommand}\"`,\n    dateAdded: currentDate,\n    voiceCommandUsed: voiceCommand\n  };\n});\n\nreturn formattedLeads.map(lead => ({json: lead}));"
+      },
+      "id": "format-leads",
+      "name": "Format Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "range": "Leads!A:A",
+        "options": {}
+      },
+      "id": "read-existing-emails",
+      "name": "Read Existing Emails",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [1850, 100],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check for duplicates\nconst existingData = $node[\"Read Existing Emails\"].json || [];\nconst existingEmails = existingData.map(row => row.email).filter(email => email);\nconst newLeads = $input.all();\n\nconst uniqueLeads = [];\nconst duplicates = [];\n\nnewLeads.forEach(item => {\n  const lead = item.json;\n  if (!existingEmails.includes(lead.email) && lead.email) {\n    uniqueLeads.push(item);\n  } else {\n    duplicates.push(item);\n  }\n});\n\n// Store stats for reporting\n$node[\"Format Leads\"].json.stats = {\n  totalFound: newLeads.length,\n  uniqueLeads: uniqueLeads.length,\n  duplicates: duplicates.length\n};\n\nreturn uniqueLeads;"
+      },
+      "id": "filter-duplicates",
+      "name": "Filter Duplicates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [2050, 200]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "range": "Leads",
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{$json.email}}",
+            "firstName": "={{$json.firstName}}",
+            "lastName": "={{$json.lastName}}",
+            "phone": "={{$json.phone}}",
+            "company": "={{$json.company}}",
+            "jobTitle": "={{$json.jobTitle}}",
+            "source": "={{$json.source}}",
+            "totalPurchases": "={{$json.totalPurchases}}",
+            "lastPurchaseDate": "={{$json.lastPurchaseDate}}",
+            "lifetimeValue": "={{$json.lifetimeValue}}",
+            "cartValue": "={{$json.cartValue}}",
+            "productInterest": "={{$json.productInterest}}",
+            "websiteUrl": "={{$json.websiteUrl}}",
+            "linkedinUrl": "={{$json.linkedinUrl}}",
+            "city": "={{$json.city}}",
+            "state": "={{$json.state}}",
+            "zipCode": "={{$json.zipCode}}",
+            "country": "={{$json.country}}",
+            "leadType": "={{$json.leadType}}",
+            "campaignName": "={{$json.campaignName}}",
+            "preferredContact": "={{$json.preferredContact}}",
+            "newsletterOptIn": "={{$json.newsletterOptIn}}",
+            "smsOptIn": "={{$json.smsOptIn}}",
+            "tags": "={{$json.tags}}",
+            "notes": "={{$json.notes}}",
+            "dateAdded": "={{$json.dateAdded}}",
+            "voiceCommandUsed": "={{$json.voiceCommandUsed}}"
+          }
+        }
+      },
+      "id": "update-google-sheets",
+      "name": "Update Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [2250, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare success message\nconst stats = $node[\"Format Leads\"].json.stats || {};\nconst chatId = $node[\"Extract Intent\"].json.chatId;\nconst locations = $node[\"Extract Intent\"].json.locations.join(', ');\nconst sheetUrl = 'YOUR_GOOGLE_SHEET_URL';\n\nconst message = `✅ Lead Search Complete!\n\n📊 Results:\n• Locations searched: ${locations}\n• Total leads found: ${stats.totalFound || 0}\n• New leads added: ${stats.uniqueLeads || 0}\n• Duplicates skipped: ${stats.duplicates || 0}\n\n📋 View leads: ${sheetUrl}\n\n🎯 Voice command: \"${$node[\"Extract Intent\"].json.originalText}\"\n\nSend another voice message to search for more leads!`;\n\nreturn [{\n  json: {\n    chatId: chatId,\n    text: message,\n    parse_mode: 'Markdown'\n  }\n}];"
+      },
+      "id": "prepare-success-message",
+      "name": "Prepare Success Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [2450, 200]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chatId}}",
+        "text": "={{$json.text}}",
+        "additionalFields": {
+          "parse_mode": "={{$json.parse_mode}}"
+        }
+      },
+      "id": "send-telegram-response",
+      "name": "Send Telegram Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [2650, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.message.chat.id}}",
+        "text": "Please send a voice message with your lead search request. For example: 'Find leads from UK, US, and Canada'",
+        "additionalFields": {}
+      },
+      "id": "send-text-response",
+      "name": "Send Text Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [650, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Error handler\nconst error = $input.first().json.error || 'Unknown error occurred';\nconst chatId = $node[\"Telegram Trigger\"].json.message.chat.id;\n\nconst message = `❌ Error occurred:\n\n${error}\n\nPlease try again or contact support.`;\n\nreturn [{\n  json: {\n    chatId: chatId,\n    text: message\n  }\n}];"
+      },
+      "id": "error-handler",
+      "name": "Error Handler",
+      "
