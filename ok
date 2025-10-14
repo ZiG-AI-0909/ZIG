@@ -1,0 +1,119 @@
+{
+  "nodes": [
+    {
+      "id": "onFormSubmission",
+      "name": "On Form Submission",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -400,
+        -240
+      ],
+      "parameters": {
+        "formTitle": "Career Application",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "WhatsApp Number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Position Applied",
+              "requiredField": true
+            }
+          ]
+        }
+      },
+      "webhookId": "b613885c-ca57-490e-a562-976fe3a487f6"
+    },
+    {
+      "id": "editFields",
+      "name": "Edit Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        0,
+        -100
+      ],
+      "parameters": {
+        "values": [
+          {
+            "name": "Name",
+            "value": "={{ $json[\"Name\"] }}",
+            "type": "string"
+          },
+          {
+            "name": "Email",
+            "value": "={{ $json[\"Email\"] }}",
+            "type": "string"
+          },
+          {
+            "name": "WhatsApp Number",
+            "value": "={{ $json[\"WhatsApp Number\"] }}",
+            "type": "string"
+          },
+          {
+            "name": "Position Applied",
+            "value": "={{ $json[\"Position Applied\"] }}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sendEmail",
+      "name": "Send Notification Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -100
+      ],
+      "parameters": {
+        "fromEmail": "yourgmail@gmail.com",
+        "toEmail": "tiwaribhaveshkumar@gmail.com",
+        "subject": "New JustHR Form Submission from {{$json[\"Name\"]}}",
+        "text": "Hi,\n\nA new career application has been submitted.\n\nName: {{$json[\"Name\"]}}\nEmail: {{$json[\"Email\"]}}\nWhatsApp Number: {{$json[\"WhatsApp Number\"]}}\nPosition Applied: {{$json[\"Position Applied\"]}}\n\nRegards,\nJustHR",
+        "html": "<p>Hi,</p><p>A new career application has been submitted.</p><ul><li><strong>Name:</strong> {{$json[\"Name\"]}}</li><li><strong>Email:</strong> {{$json[\"Email\"]}}</li><li><strong>WhatsApp Number:</strong> {{$json[\"WhatsApp Number\"]}}</li><li><strong>Position Applied:</strong> {{$json[\"Position Applied\"]}}</li></ul><p>Regards,<br/>JustHR</p>"
+      },
+      "credentials": {
+        "smtp": {
+          "id": "your-gmail-credentials-id",
+          "name": "Gmail Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "onFormSubmission": {
+      "main": [
+        [
+          {
+            "node": "editFields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "editFields": {
+      "main": [
+        [
+          {
+            "node": "sendEmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
