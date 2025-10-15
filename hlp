@@ -1,0 +1,47 @@
+{
+  "name": "LinkedIn Post Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "filePath": "/files/linkedin-image.jpg",
+        "binaryPropertyName": "data"
+      },
+      "name": "Read Binary File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "resource": "post",
+        "operation": "create",
+        "commentary": "Automated post via Docker + ngrok 🚀",
+        "visibility": "PUBLIC",
+        "binaryProperty": "data"
+      },
+      "name": "LinkedIn Post",
+      "type": "n8n-nodes-base.linkedin",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "LinkedIn OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Read Binary File": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  ]
+}
