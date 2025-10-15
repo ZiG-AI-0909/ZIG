@@ -1,0 +1,158 @@
+{
+  "name": "LinkedIn AI Automation with Images",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 22
+            }
+          ]
+        }
+      },
+      "id": "scheduleTrigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 200]
+    },
+    {
+      "parameters": {
+        "modelId": "gpt-4",
+        "messages": {
+          "values": [
+            {
+              "content": "Create a 50-character LinkedIn post title about a real success story where JustHR.in helped a company overcome a specific HR automation or management challenge."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "generateTitle",
+      "name": "Generate Title",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [500, 200],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_ID",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": "chatgpt-4o-latest",
+        "messages": {
+          "values": [
+            {
+              "content": "=Based on the title: {{ $json.message.content }}\nWrite a LinkedIn post text. Include hashtags and make it solution-oriented."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "generateText",
+      "name": "Generate Post Text",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [750, 200],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_ID",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "prompt": "=Based on the title: {{ $json.message.content }}\nGenerate an image illustrating the topic",
+        "options": {}
+      },
+      "id": "generateImage",
+      "name": "Generate Image",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [500, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_ID",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const imageData = $json.base64_image || $json.data;\nreturn [{ json: {}, binary: { data: { data: Buffer.from(imageData, 'base64'), fileName: 'linkedin_image.png', mimeType: 'image/png' } } }];"
+      },
+      "id": "convertToBinary",
+      "name": "Convert Image to Binary",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [750, 400]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": "GOOGLE_SHEET_DOC_ID",
+        "sheetName": "Sheet1",
+        "columns": {
+          "value": {
+            "Title": "={{$json.message.content}}",
+            "Description": "={{$json.message.content}}"
+          },
+          "schema": [
+            { "id": "Title", "type": "string", "display": true },
+            { "id": "Description", "type": "string", "display": true }
+          ],
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["Title"]
+        }
+      },
+      "id": "updateSheet",
+      "name": "Update Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [1000, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "person": "F_LD-ET38e",
+        "shareMediaCategory": "IMAGE",
+        "binaryProperty": "data",
+        "additionalFields": {
+          "commentary": "={{$json.message.content}}"
+        }
+      },
+      "id": "linkedinPost",
+      "name": "Post to LinkedIn",
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [1250, 300],
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "LINKEDIN_CREDENTIAL_ID",
+          "name": "LinkedIn account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "generateTitle", "type": "main", "index": 0 }]] },
+    "generateTitle": { "main": [[{ "node": "generateText", "type": "main", "index": 0 }, { "node": "generateImage", "type": "main", "index": 0 }]] },
+    "generateImage": { "main": [[{ "node": "convertToBinary", "type": "main", "index": 0 }]] },
+    "convertToBinary": { "main": [[{ "node": "linkedinPost", "type": "main", "index": 0 }]] },
+    "generateText": { "main": [[{ "node": "updateSheet", "type": "main", "index": 0 }]] },
+    "updateSheet": { "main": [[{ "node": "linkedinPost", "type": "main", "index": 0 }]] }
+  ],
+  "active": false,
+  "settings": {}
+}
